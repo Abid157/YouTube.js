@@ -152,7 +152,7 @@ export default class PlaylistManager {
    * @param predecessor_video_id - The video ID to move the moved video before.
    */
   async moveVideo(playlist_id: string, moved_video_id: string, predecessor_video_id: string): Promise<{ playlist_id: string; action_result: any; }> {
-    throwIfMissing({ playlist_id, moved_video_id, predecessor_video_id });
+    throwIfMissing({ playlist_id, moved_video_id });
 
     if (!this.#actions.session.logged_in)
       throw new InnertubeError('You must be signed in to perform this operation.');
@@ -170,20 +170,20 @@ export default class PlaylistManager {
 
     let set_video_id_0: string | undefined, set_video_id_1: string | undefined;
 
-    const getSetVideoIds = async (pl: Feed): Promise<void> => {
-      const video_0 = pl.videos.find((video) => moved_video_id === video.key('id').string());
-      const video_1 = pl.videos.find((video) => predecessor_video_id === video.key('id').string());
-
-      set_video_id_0 = set_video_id_0 || video_0?.key('set_video_id').string();
-      set_video_id_1 = set_video_id_1 || video_1?.key('set_video_id').string();
-
-      if (!set_video_id_0 || !set_video_id_1) {
+    const getSetVideoId = async (pl: Feed, videoId: string, setVideoId: string | undefined): Promise<string | undefined> => {
+      if (!videoId) return;
+      const video_ = pl.videos.find((video) => moved_video_id === video.key('id').string());
+      setVideoId = setVideoId || video_?.key('set_video_id').string();
+      
+      if (!setVideoId) {
         const next = await pl.getContinuation();
-        return getSetVideoIds(next);
+        return getSetVideoId(next, videoId, setVideoId);
       }
+      return setVideoId;
     };
 
-    await getSetVideoIds(playlist);
+    set_video_id_0 = await getSetVideoId(playlist, moved_video_id, set_video_id_0);
+    set_video_id_1 = await getSetVideoId(playlist, predecessor_video_id, set_video_id_1);
 
     payload.actions.push({
       action: 'ACTION_MOVE_VIDEO_AFTER',
