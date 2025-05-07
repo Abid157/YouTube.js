@@ -1,14 +1,19 @@
-import Parser, { NavigateAction } from '../parser/index.js';
+import type {
+  IBrowseResponse,
+  IGetChallengeResponse,
+  IGetNotificationsMenuResponse,
+  INextResponse,
+  IParsedResponse,
+  IPlayerResponse,
+  IRawResponse,
+  IResolveURLResponse,
+  ISearchResponse,
+  IUpdatedMetadataResponse
+} from '../parser/index.js';
+import { NavigateAction, Parser } from '../parser/index.js';
 import { InnertubeError } from '../utils/Utils.js';
 
-import type Session from './Session.js';
-
-import type {
-  IBrowseResponse, IGetNotificationsMenuResponse,
-  INextResponse, IPlayerResponse, IResolveURLResponse,
-  ISearchResponse, IUpdatedMetadataResponse,
-  IParsedResponse, IRawResponse
-} from '../parser/types/index.js';
+import type { Session } from './index.js';
 
 export interface ApiResponse {
   success: boolean;
@@ -16,39 +21,33 @@ export interface ApiResponse {
   data: IRawResponse;
 }
 
-export type InnertubeEndpoint = '/player' | '/search' | '/browse' | '/next' | '/updated_metadata' | '/notification/get_notification_menu' | string;
+export type InnertubeEndpoint =
+  '/player'
+  | '/search'
+  | '/browse'
+  | '/next'
+  | '/reel'
+  | '/updated_metadata'
+  | '/notification/get_notification_menu'
+  | '/att/get'
+  | string;
 
 export type ParsedResponse<T> =
   T extends '/player' ? IPlayerResponse :
-  T extends '/search' ? ISearchResponse :
-  T extends '/browse' ? IBrowseResponse :
-  T extends '/next' ? INextResponse :
-  T extends '/updated_metadata' ? IUpdatedMetadataResponse :
-  T extends '/navigation/resolve_url' ? IResolveURLResponse :
-  T extends '/notification/get_notification_menu' ? IGetNotificationsMenuResponse :
-  IParsedResponse;
+    T extends '/search' ? ISearchResponse :
+      T extends '/browse' ? IBrowseResponse :
+        T extends '/next' ? INextResponse :
+          T extends '/updated_metadata' ? IUpdatedMetadataResponse :
+            T extends '/navigation/resolve_url' ? IResolveURLResponse :
+              T extends '/notification/get_notification_menu' ? IGetNotificationsMenuResponse :
+                T extends '/att/get' ? IGetChallengeResponse :
+                  IParsedResponse;
 
 export default class Actions {
-  #session: Session;
+  public session: Session;
 
   constructor(session: Session) {
-    this.#session = session;
-  }
-
-  get session(): Session {
-    return this.#session;
-  }
-
-  /**
-   * Mimmics the Axios API using Fetch's Response object.
-   * @param response - The response object.
-   */
-  async #wrap(response: Response): Promise<ApiResponse> {
-    return {
-      success: response.ok,
-      status_code: response.status,
-      data: JSON.parse(await response.text())
-    };
+    this.session = session;
   }
 
   /**
@@ -57,7 +56,9 @@ export default class Actions {
    * @param client - The client to use.
    * @param params - Call parameters.
    */
-  async stats(url: string, client: { client_name: string; client_version: string }, params: { [key: string]: any }): Promise<Response> {
+  async stats(url: string, client: { client_name: string; client_version: string }, params: {
+    [key: string]: any
+  }): Promise<Response> {
     const s_url = new URL(url);
 
     s_url.searchParams.set('ver', '2');
@@ -69,9 +70,7 @@ export default class Actions {
       s_url.searchParams.set(key, params[key]);
     }
 
-    const response = await this.#session.http.fetch(s_url);
-
-    return response;
+    return await this.session.http.fetch(s_url);
   }
 
   /**
@@ -79,18 +78,39 @@ export default class Actions {
    * @param endpoint - The endpoint to call.
    * @param args - Call arguments
    */
-  async execute<T extends InnertubeEndpoint>(endpoint: T, args: { [key: string]: any; parse: true; protobuf?: false; serialized_data?: any }): Promise<ParsedResponse<T>>;
-  async execute<T extends InnertubeEndpoint>(endpoint: T, args?: { [key: string]: any; parse?: false; protobuf?: true; serialized_data?: any }): Promise<ApiResponse>;
-  async execute<T extends InnertubeEndpoint>(endpoint: T, args?: { [key: string]: any; parse?: boolean; protobuf?: boolean; serialized_data?: any }): Promise<ParsedResponse<T> | ApiResponse> {
+  async execute<T extends InnertubeEndpoint>(endpoint: T, args: {
+    [key: string]: any;
+    parse: true;
+    protobuf?: false;
+    serialized_data?: any;
+    skip_auth_check?: boolean
+  }): Promise<ParsedResponse<T>>;
+  async execute<T extends InnertubeEndpoint>(endpoint: T, args?: {
+    [key: string]: any;
+    parse?: false;
+    protobuf?: true;
+    serialized_data?: any;
+    skip_auth_check?: boolean
+  }): Promise<ApiResponse>;
+  async execute<T extends InnertubeEndpoint>(endpoint: T, args?: {
+    [key: string]: any;
+    parse?: boolean;
+    protobuf?: boolean;
+    serialized_data?: any;
+    skip_auth_check?: boolean
+  }): Promise<ParsedResponse<T> | ApiResponse> {
     let data;
 
     if (args && !args.protobuf) {
       data = { ...args };
 
-      if (Reflect.has(data, 'browseId')) {
-        if (this.#needsLogin(data.browseId) && !this.#session.logged_in)
+      if (Reflect.has(data, 'browseId') && !args.skip_auth_check) {
+        if (this.#needsLogin(data.browseId) && !this.session.logged_in)
           throw new InnertubeError('You must be signed in to perform this operation.');
       }
+
+      if (Reflect.has(data, 'skip_auth_check'))
+        delete data.skip_auth_check;
 
       if (Reflect.has(data, 'override_endpoint'))
         delete data.override_endpoint;
@@ -131,7 +151,7 @@ export default class Actions {
 
     const target_endpoint = Reflect.has(args || {}, 'override_endpoint') ? args?.override_endpoint : endpoint;
 
-    const response = await this.#session.http.fetch(target_endpoint, {
+    const response = await this.session.http.fetch(target_endpoint, {
       method: 'POST',
       body: args?.protobuf ? data : JSON.stringify((data || {})),
       headers: {
@@ -145,7 +165,7 @@ export default class Actions {
       let parsed_response = Parser.parseResponse<ParsedResponse<T>>(await response.json());
 
       // Handle redirects
-      if (this.#isBrowse(parsed_response) && parsed_response.on_response_received_actions?.first()?.type === 'navigateAction') {
+      if (this.#isBrowse(parsed_response) && parsed_response.on_response_received_actions?.[0]?.type === 'navigateAction') {
         const navigate_action = parsed_response.on_response_received_actions.firstOfType(NavigateAction);
         if (navigate_action) {
           parsed_response = await navigate_action.endpoint.call(this, { parse: true });
@@ -155,7 +175,12 @@ export default class Actions {
       return parsed_response;
     }
 
-    return this.#wrap(response);
+    // Mimics the Axios API using Fetch's Response object.
+    return {
+      success: response.ok,
+      status_code: response.status,
+      data: JSON.parse(await response.text())
+    };
   }
 
   #isBrowse(response: IParsedResponse): response is IBrowseResponse {
@@ -167,6 +192,8 @@ export default class Actions {
       'FElibrary',
       'FEhistory',
       'FEsubscriptions',
+      'FEchannels',
+      'FEplaylist_aggregation',
       'FEmusic_listening_review',
       'FEmusic_library_landing',
       'SPaccount_overview',

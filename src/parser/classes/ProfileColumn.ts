@@ -1,10 +1,10 @@
 import { YTNode, type ObservedArray } from '../helpers.js';
-import Parser, { type RawNode } from '../index.js';
+import { Parser, type RawNode } from '../index.js';
 
 export default class ProfileColumn extends YTNode {
   static type = 'ProfileColumn';
 
-  items: ObservedArray<YTNode>;
+  public items: ObservedArray<YTNode>;
 
   constructor(data: RawNode) {
     super();

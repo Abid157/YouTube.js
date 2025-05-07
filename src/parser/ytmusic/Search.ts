@@ -1,6 +1,5 @@
-import type Actions from '../../core/Actions.js';
 import { InnertubeError } from '../../utils/Utils.js';
-import Parser, { MusicShelfContinuation } from '../index.js';
+import { Parser, MusicShelfContinuation } from '../index.js';
 
 import ChipCloud from '../classes/ChipCloud.js';
 import ChipCloudChip from '../classes/ChipCloudChip.js';
@@ -9,23 +8,22 @@ import ItemSection from '../classes/ItemSection.js';
 import Message from '../classes/Message.js';
 import MusicCardShelf from '../classes/MusicCardShelf.js';
 import MusicHeader from '../classes/MusicHeader.js';
-import type MusicResponsiveListItem from '../classes/MusicResponsiveListItem.js';
 import MusicShelf from '../classes/MusicShelf.js';
 import SectionList from '../classes/SectionList.js';
 import ShowingResultsFor from '../classes/ShowingResultsFor.js';
 import TabbedSearchResults from '../classes/TabbedSearchResults.js';
 
 import type { ObservedArray } from '../helpers.js';
-import type { ISearchResponse } from '../types/ParsedResponse.js';
-import type { ApiResponse } from '../../core/Actions.js';
+import type { ISearchResponse } from '../types/index.js';
+import type { ApiResponse, Actions } from '../../core/index.js';
 
 export default class Search {
-  #page: ISearchResponse;
-  #actions: Actions;
-  #continuation?: string;
+  readonly #page: ISearchResponse;
+  readonly #actions: Actions;
+  readonly #continuation?: string;
 
-  header?: ChipCloud;
-  contents?: ObservedArray<MusicShelf | MusicCardShelf | ItemSection>;
+  public header?: ChipCloud;
+  public contents?: ObservedArray<MusicShelf | MusicCardShelf | ItemSection>;
 
   constructor(response: ApiResponse, actions: Actions, is_filtered?: boolean) {
     this.#actions = actions;
@@ -117,15 +115,15 @@ export default class Search {
   }
 
   get did_you_mean(): DidYouMean | undefined {
-    return this.#page.contents_memo?.getType(DidYouMean).first();
+    return this.#page.contents_memo?.getType(DidYouMean)[0];
   }
 
   get showing_results_for(): ShowingResultsFor | undefined {
-    return this.#page.contents_memo?.getType(ShowingResultsFor).first();
+    return this.#page.contents_memo?.getType(ShowingResultsFor)[0];
   }
 
   get message(): Message | undefined {
-    return this.#page.contents_memo?.getType(Message).first();
+    return this.#page.contents_memo?.getType(Message)[0];
   }
 
   get songs(): MusicShelf | undefined {
@@ -148,30 +146,16 @@ export default class Search {
     return this.contents?.filterType(MusicShelf).find((section) => section.title.toString() === 'Community playlists');
   }
 
-  /**
-   * @deprecated Use {@link Search.contents} instead.
-   */
-  get results(): ObservedArray<MusicResponsiveListItem> | undefined {
-    return this.contents?.firstOfType(MusicShelf)?.contents;
-  }
-
-  /**
-   * @deprecated Use {@link Search.contents} instead.
-   */
-  get sections(): ObservedArray<MusicShelf> | undefined {
-    return this.contents?.filterType(MusicShelf);
-  }
-
   get page(): ISearchResponse {
     return this.#page;
   }
 }
 
 export class SearchContinuation {
-  #actions: Actions;
-  #page: ISearchResponse;
-  header?: MusicHeader;
-  contents?: MusicShelfContinuation;
+  readonly #actions: Actions;
+  readonly #page: ISearchResponse;
+  public header?: MusicHeader;
+  public contents?: MusicShelfContinuation;
 
   constructor(actions: Actions, response: ApiResponse) {
     this.#actions = actions;

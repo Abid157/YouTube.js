@@ -1,45 +1,54 @@
+import Feed from '../../core/mixins/Feed.js';
+import FilterableFeed from '../../core/mixins/FilterableFeed.js';
+import { ChannelError, InnertubeError } from '../../utils/Utils.js';
+
 import TabbedFeed from '../../core/mixins/TabbedFeed.js';
 import C4TabbedHeader from '../classes/C4TabbedHeader.js';
 import CarouselHeader from '../classes/CarouselHeader.js';
 import ChannelAboutFullMetadata from '../classes/ChannelAboutFullMetadata.js';
+import AboutChannel from '../classes/AboutChannel.js';
 import ChannelMetadata from '../classes/ChannelMetadata.js';
 import InteractiveTabbedHeader from '../classes/InteractiveTabbedHeader.js';
 import MicroformatData from '../classes/MicroformatData.js';
 import SubscribeButton from '../classes/SubscribeButton.js';
 import ExpandableTab from '../classes/ExpandableTab.js';
 import SectionList from '../classes/SectionList.js';
-import Tab from '../classes/Tab.js';
-
-import Feed from '../../core/mixins/Feed.js';
-import FilterableFeed from '../../core/mixins/FilterableFeed.js';
+import type Tab from '../classes/Tab.js';
+import PageHeader from '../classes/PageHeader.js';
+import TwoColumnBrowseResults from '../classes/TwoColumnBrowseResults.js';
 import ChipCloudChip from '../classes/ChipCloudChip.js';
 import FeedFilterChipBar from '../classes/FeedFilterChipBar.js';
 import ChannelSubMenu from '../classes/ChannelSubMenu.js';
 import SortFilterSubMenu from '../classes/SortFilterSubMenu.js';
+import ContinuationItem from '../classes/ContinuationItem.js';
+import NavigationEndpoint from '../classes/NavigationEndpoint.js';
 
-import { ChannelError, InnertubeError } from '../../utils/Utils.js';
-
-import type { AppendContinuationItemsAction, ReloadContinuationItemsCommand } from '../index.js';
-import type Actions from '../../core/Actions.js';
-import type { ApiResponse } from '../../core/Actions.js';
+import type {
+  AppendContinuationItemsAction,
+  NavigateAction,
+  ReloadContinuationItemsCommand,
+  ShowMiniplayerCommand
+} from '../index.js';
+import type { ApiResponse, Actions } from '../../core/index.js';
 import type { IBrowseResponse } from '../types/index.js';
+import type OpenPopupAction from '../classes/actions/OpenPopupAction.js';
 
 export default class Channel extends TabbedFeed<IBrowseResponse> {
-  header?: C4TabbedHeader | CarouselHeader | InteractiveTabbedHeader;
-  metadata;
-  subscribe_button?: SubscribeButton;
-  current_tab?: Tab | ExpandableTab;
+  public header?: C4TabbedHeader | CarouselHeader | InteractiveTabbedHeader | PageHeader;
+  public metadata;
+  public subscribe_button?: SubscribeButton;
+  public current_tab?: Tab | ExpandableTab;
 
   constructor(actions: Actions, data: ApiResponse | IBrowseResponse, already_parsed = false) {
     super(actions, data, already_parsed);
 
-    this.header = this.page.header?.item()?.as(C4TabbedHeader, CarouselHeader, InteractiveTabbedHeader);
+    this.header = this.page.header?.item()?.as(C4TabbedHeader, CarouselHeader, InteractiveTabbedHeader, PageHeader);
 
     const metadata = this.page.metadata?.item().as(ChannelMetadata);
     const microformat = this.page.microformat?.as(MicroformatData);
 
     if (this.page.alerts) {
-      const alert = this.page.alerts.first();
+      const alert = this.page.alerts[0];
       if (alert?.alert_type === 'ERROR') {
         throw new ChannelError(alert.text.toString());
       }
@@ -50,9 +59,10 @@ export default class Channel extends TabbedFeed<IBrowseResponse> {
 
     this.metadata = { ...metadata, ...(microformat || {}) };
 
-    this.subscribe_button = this.page.header_memo?.getType(SubscribeButton).first();
+    this.subscribe_button = this.page.header_memo?.getType(SubscribeButton)[0];
 
-    this.current_tab = this.page.contents?.item().key('tabs').parsed().array().filterType(Tab, ExpandableTab).get({ selected: true });
+    if (this.page.contents)
+      this.current_tab = this.page.contents.item().as(TwoColumnBrowseResults).tabs.get({ selected: true });
   }
 
   /**
@@ -62,20 +72,20 @@ export default class Channel extends TabbedFeed<IBrowseResponse> {
   async applyFilter(filter: string | ChipCloudChip): Promise<FilteredChannelList> {
     let target_filter: ChipCloudChip | undefined;
 
-    const filter_chipbar = this.memo.getType(FeedFilterChipBar).first();
+    const filter_chipbar = this.memo.getType(FeedFilterChipBar)[0];
 
     if (typeof filter === 'string') {
       target_filter = filter_chipbar?.contents.get({ text: filter });
       if (!target_filter)
         throw new InnertubeError(`Filter ${filter} not found`, { available_filters: this.filters });
-    } else if (filter instanceof ChipCloudChip) {
+    } else {
       target_filter = filter;
     }
 
-    if (!target_filter)
+    if (!target_filter.endpoint)
       throw new InnertubeError('Invalid filter', filter);
 
-    const page = await target_filter.endpoint?.call<IBrowseResponse>(this.actions, { parse: true });
+    const page = await target_filter.endpoint.call<IBrowseResponse>(this.actions, { parse: true });
 
     if (!page)
       throw new InnertubeError('No page returned', { filter: target_filter });
@@ -88,12 +98,12 @@ export default class Channel extends TabbedFeed<IBrowseResponse> {
    * @param sort - The sort filter to apply
    */
   async applySort(sort: string): Promise<Channel> {
-    const sort_filter_sub_menu = this.memo.getType(SortFilterSubMenu).first();
+    const sort_filter_sub_menu = this.memo.getType(SortFilterSubMenu)[0];
 
-    if (!sort_filter_sub_menu)
+    if (!sort_filter_sub_menu || !sort_filter_sub_menu.sub_menu_items)
       throw new InnertubeError('No sort filter sub menu found');
 
-    const target_sort = sort_filter_sub_menu?.sub_menu_items?.find((item) => item.title === sort);
+    const target_sort = sort_filter_sub_menu.sub_menu_items.find((item) => item.title === sort);
 
     if (!target_sort)
       throw new InnertubeError(`Sort filter ${sort} not found`, { available_sort_filters: this.sort_filters });
@@ -101,7 +111,7 @@ export default class Channel extends TabbedFeed<IBrowseResponse> {
     if (target_sort.selected)
       return this;
 
-    const page = await target_sort.endpoint?.call<IBrowseResponse>(this.actions, { parse: true });
+    const page = await target_sort.endpoint.call<IBrowseResponse>(this.actions, { parse: true });
 
     return new Channel(this.actions, page, true);
   }
@@ -124,7 +134,7 @@ export default class Channel extends TabbedFeed<IBrowseResponse> {
     if (item.selected)
       return this;
 
-    const page = await item.endpoint?.call<IBrowseResponse>(this.actions, { parse: true });
+    const page = await item.endpoint.call<IBrowseResponse>(this.actions, { parse: true });
 
     return new Channel(this.actions, page, true);
   }
@@ -134,7 +144,7 @@ export default class Channel extends TabbedFeed<IBrowseResponse> {
   }
 
   get sort_filters(): string[] {
-    const sort_filter_sub_menu = this.memo.getType(SortFilterSubMenu).first();
+    const sort_filter_sub_menu = this.memo.getType(SortFilterSubMenu)[0];
     return sort_filter_sub_menu?.sub_menu_items?.map((item) => item.title) || [];
   }
 
@@ -163,6 +173,21 @@ export default class Channel extends TabbedFeed<IBrowseResponse> {
     return new Channel(this.actions, tab.page, true);
   }
 
+  async getReleases(): Promise<Channel> {
+    const tab = await this.getTabByURL('releases');
+    return new Channel(this.actions, tab.page, true);
+  }
+
+  async getPodcasts(): Promise<Channel> {
+    const tab = await this.getTabByURL('podcasts');
+    return new Channel(this.actions, tab.page, true);
+  }
+
+  async getCourses(): Promise<Channel> {
+    const tab = await this.getTabByURL('courses');
+    return new Channel(this.actions, tab.page, true);
+  }
+
   async getPlaylists(): Promise<Channel> {
     const tab = await this.getTabByURL('playlists');
     return new Channel(this.actions, tab.page, true);
@@ -173,18 +198,42 @@ export default class Channel extends TabbedFeed<IBrowseResponse> {
     return new Channel(this.actions, tab.page, true);
   }
 
-  async getChannels(): Promise<Channel> {
-    const tab = await this.getTabByURL('channels');
-    return new Channel(this.actions, tab.page, true);
-  }
-
   /**
    * Retrieves the about page.
    * Note that this does not return a new {@link Channel} object.
    */
-  async getAbout(): Promise<ChannelAboutFullMetadata> {
-    const tab = await this.getTabByURL('about');
-    return tab.memo.getType(ChannelAboutFullMetadata)?.[0];
+  async getAbout(): Promise<ChannelAboutFullMetadata | AboutChannel> {
+    if (this.hasTabWithURL('about')) {
+      const tab = await this.getTabByURL('about');
+      return tab.memo.getType(ChannelAboutFullMetadata)[0];
+    }
+
+    const tagline = this.header?.is(C4TabbedHeader) && this.header.tagline;
+
+    if (tagline || this.header?.is(PageHeader) && this.header.content?.description) {
+      if (tagline && tagline.more_endpoint instanceof NavigationEndpoint) {
+        const response = await tagline.more_endpoint.call(this.actions);
+
+        const tab = new TabbedFeed<IBrowseResponse>(this.actions, response, false);
+        return tab.memo.getType(ChannelAboutFullMetadata)[0];
+      }
+
+      const endpoint = this.page.header_memo?.getType(ContinuationItem)[0]?.endpoint;
+
+      if (!endpoint) {
+        throw new InnertubeError('Failed to extract continuation to get channel about');
+      }
+
+      const response = await endpoint.call<IBrowseResponse>(this.actions, { parse: true });
+
+      if (!response.on_response_received_endpoints_memo) {
+        throw new InnertubeError('Unexpected response while fetching channel about', { response });
+      }
+
+      return response.on_response_received_endpoints_memo.getType(AboutChannel)[0];
+    }
+
+    throw new InnertubeError('About not found');
   }
 
   /**
@@ -196,7 +245,7 @@ export default class Channel extends TabbedFeed<IBrowseResponse> {
     if (!tab)
       throw new InnertubeError('Search tab not found', this);
 
-    const page = await tab.endpoint?.call<IBrowseResponse>(this.actions, { query, parse: true });
+    const page = await tab.endpoint.call<IBrowseResponse>(this.actions, { query, parse: true });
 
     return new Channel(this.actions, page, true);
   }
@@ -217,6 +266,18 @@ export default class Channel extends TabbedFeed<IBrowseResponse> {
     return this.hasTabWithURL('streams');
   }
 
+  get has_releases(): boolean {
+    return this.hasTabWithURL('releases');
+  }
+
+  get has_podcasts(): boolean {
+    return this.hasTabWithURL('podcasts');
+  }
+
+  get has_courses(): boolean {
+    return this.hasTabWithURL('courses');
+  }
+
   get has_playlists(): boolean {
     return this.hasTabWithURL('playlists');
   }
@@ -225,21 +286,17 @@ export default class Channel extends TabbedFeed<IBrowseResponse> {
     return this.hasTabWithURL('community');
   }
 
-  get has_channels(): boolean {
-    return this.hasTabWithURL('channels');
-  }
-
   get has_about(): boolean {
-    return this.hasTabWithURL('about');
+    // Game topic channels still have an about tab, user channels have switched to the popup
+    return this.hasTabWithURL('about') ||
+      !!(this.header?.is(C4TabbedHeader) && this.header.tagline?.more_endpoint) ||
+      !!(this.header?.is(PageHeader) && this.header.content?.description?.more_endpoint);
   }
 
   get has_search(): boolean {
     return this.memo.getType(ExpandableTab)?.length > 0;
   }
 
-  /**
-   * Retrives list continuation.
-   */
   async getContinuation(): Promise<ChannelListContinuation> {
     const page = await super.getContinuationData();
     if (!page)
@@ -249,18 +306,15 @@ export default class Channel extends TabbedFeed<IBrowseResponse> {
 }
 
 export class ChannelListContinuation extends Feed<IBrowseResponse> {
-  contents?: ReloadContinuationItemsCommand | AppendContinuationItemsAction;
+  contents?: AppendContinuationItemsAction | OpenPopupAction | NavigateAction | ShowMiniplayerCommand | ReloadContinuationItemsCommand;
 
   constructor(actions: Actions, data: ApiResponse | IBrowseResponse, already_parsed = false) {
     super(actions, data, already_parsed);
     this.contents =
-      this.page.on_response_received_actions?.first() ||
-      this.page.on_response_received_endpoints?.first();
+      this.page.on_response_received_actions?.[0] ||
+      this.page.on_response_received_endpoints?.[0];
   }
 
-  /**
-   * Retrieves list continuation.
-   */
   async getContinuation(): Promise<ChannelListContinuation> {
     const page = await super.getContinuationData();
     if (!page)
@@ -271,7 +325,7 @@ export class ChannelListContinuation extends Feed<IBrowseResponse> {
 
 export class FilteredChannelList extends FilterableFeed<IBrowseResponse> {
   applied_filter?: ChipCloudChip;
-  contents: ReloadContinuationItemsCommand | AppendContinuationItemsAction;
+  contents?: AppendContinuationItemsAction | OpenPopupAction | NavigateAction | ShowMiniplayerCommand | ReloadContinuationItemsCommand;
 
   constructor(actions: Actions, data: ApiResponse | IBrowseResponse, already_parsed = false) {
     super(actions, data, already_parsed);
@@ -286,7 +340,7 @@ export class FilteredChannelList extends FilterableFeed<IBrowseResponse> {
       this.page.on_response_received_actions.shift();
     }
 
-    this.contents = this.page.on_response_received_actions.first();
+    this.contents = this.page.on_response_received_actions?.[0];
   }
 
   /**
@@ -298,9 +352,6 @@ export class FilteredChannelList extends FilterableFeed<IBrowseResponse> {
     return new FilteredChannelList(this.actions, feed.page, true);
   }
 
-  /**
-   * Retrieves list continuation.
-   */
   async getContinuation(): Promise<FilteredChannelList> {
     const page = await super.getContinuationData();
 
